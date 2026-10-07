@@ -1,0 +1,12 @@
+﻿package com.akkidarkhq.visaflow.model.enums;
+
+public enum ApplicationStatus {
+    APPLICATION_STARTED,
+    DOCUMENTS_PENDING,
+    DOCUMENTS_UNDER_REVIEW,
+    DOCUMENTS_COMPLETE,
+    SUBMITTED,
+    EMBASSY_CONSULATE_PROCESSING,
+    PASSPORT_DECISION_RECEIVED,
+    COMPLETED
+}

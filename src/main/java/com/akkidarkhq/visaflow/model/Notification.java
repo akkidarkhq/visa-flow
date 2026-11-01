@@ -1,5 +1,6 @@
-﻿package com.akkidarkhq.visaflow.model;
+package com.akkidarkhq.visaflow.model;
 
+import com.akkidarkhq.visaflow.security.model.User;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;

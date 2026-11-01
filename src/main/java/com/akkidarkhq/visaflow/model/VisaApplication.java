@@ -1,4 +1,4 @@
-﻿package com.akkidarkhq.visaflow.model;
+package com.akkidarkhq.visaflow.model;
 
 import com.akkidarkhq.visaflow.model.enums.ApplicationStatus;
 import jakarta.persistence.*;
@@ -10,7 +10,10 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "visa_applications")
+@Table(name = "visa_applications", indexes = {
+    @Index(name = "idx_visa_applications_group_ref", columnList = "group_reference"),
+    @Index(name = "idx_visa_applications_reference_num", columnList = "reference_number")
+})
 @Getter
 @Setter
 @NoArgsConstructor
@@ -21,12 +24,23 @@ public class VisaApplication {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    /**
+     * Nullable for Model B: Application is created BEFORE payment.
+     * Linked to an OrderItem only AFTER payment is confirmed.
+     */
     @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "order_item_id", nullable = false, unique = true)
+    @JoinColumn(name = "order_item_id", unique = true)  // removed nullable = false
     private OrderItem orderItem;
 
     @Column(name = "reference_number", nullable = false, unique = true, length = 35)
     private String referenceNumber;
+
+    /**
+     * Shared group identifier across companions traveling together (e.g., GRP-2026-123456).
+     * All family members or friends applying together share the same group_reference.
+     */
+    @Column(name = "group_reference", length = 35)
+    private String groupReference;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "traveller_id", nullable = false)

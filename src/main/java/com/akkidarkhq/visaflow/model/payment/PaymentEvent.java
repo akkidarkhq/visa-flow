@@ -1,4 +1,4 @@
-﻿package com.akkidarkhq.visaflow.model;
+package com.akkidarkhq.visaflow.model.payment;
 
 import jakarta.persistence.*;
 import lombok.*;

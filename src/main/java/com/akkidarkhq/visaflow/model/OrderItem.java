@@ -1,4 +1,4 @@
-﻿package com.akkidarkhq.visaflow.model;
+package com.akkidarkhq.visaflow.model;
 
 import com.akkidarkhq.visaflow.model.enums.OrderItemStatus;
 import jakarta.persistence.*;
@@ -11,7 +11,11 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "order_items")
+@Table(name = "order_items", indexes = {
+    @Index(name = "idx_order_items_order_id", columnList = "order_id"),
+    @Index(name = "idx_order_items_traveller_id", columnList = "traveller_id"),
+    @Index(name = "idx_order_items_visa_type_id", columnList = "visa_type_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor
@@ -43,6 +47,7 @@ public class OrderItem {
     @Column(name = "total_amount", nullable = false, precision = 12, scale = 2)
     private BigDecimal totalAmount;
 
+    @Builder.Default
     @Column(nullable = false, length = 10)
     private String currency = "INR";
 

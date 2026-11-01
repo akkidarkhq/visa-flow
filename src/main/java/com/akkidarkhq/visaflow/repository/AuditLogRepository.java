@@ -1,4 +1,4 @@
-﻿package com.akkidarkhq.visaflow.repository;
+package com.akkidarkhq.visaflow.repository;
 
 import com.akkidarkhq.visaflow.model.AuditLog;
 import org.springframework.data.jpa.repository.JpaRepository;

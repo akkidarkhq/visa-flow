@@ -1,6 +1,6 @@
-﻿package com.akkidarkhq.visaflow.repository;
+package com.akkidarkhq.visaflow.repository;
 
-import com.akkidarkhq.visaflow.model.PaymentEvent;
+import com.akkidarkhq.visaflow.model.payment.PaymentEvent;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

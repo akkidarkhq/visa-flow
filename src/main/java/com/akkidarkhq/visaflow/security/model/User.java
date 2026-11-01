@@ -1,6 +1,5 @@
-﻿package com.akkidarkhq.visaflow.model;
+package com.akkidarkhq.visaflow.security.model;
 
-import com.akkidarkhq.visaflow.model.enums.UserRole;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -21,6 +20,9 @@ public class User {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(nullable = false, unique = true, length = 50)
+    private String username;
+
     @Column(name = "full_name", nullable = false, length = 150)
     private String fullName;
 
@@ -37,6 +39,7 @@ public class User {
     @Column(nullable = false)
     private UserRole role;
 
+    @Builder.Default
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
 

@@ -1,4 +1,4 @@
-﻿package com.akkidarkhq.visaflow.model.enums;
+package com.akkidarkhq.visaflow.security.model;
 
 public enum UserRole {
     CLIENT,

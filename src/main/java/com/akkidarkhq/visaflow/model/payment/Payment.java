@@ -1,7 +1,9 @@
-﻿package com.akkidarkhq.visaflow.model;
+package com.akkidarkhq.visaflow.model.payment;
 
+import com.akkidarkhq.visaflow.model.VisaOrder;
 import com.akkidarkhq.visaflow.model.enums.PaymentGatewayStatus;
 import com.akkidarkhq.visaflow.model.enums.PaymentMethod;
+import com.akkidarkhq.visaflow.security.model.User;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;

@@ -48,6 +48,13 @@ Instant group tracking reference code and individual application reference gener
 
 ---
 
+### 7. VisaFlow AI Assistant & RAG Chatbot
+Intelligent conversational assistant with live database grounding for requirements, fees, document checklists, and application tracking.
+
+![VisaFlow AI Chatbot](screenshots/07-chatbot-screen.png)
+
+---
+
 ## 🤖 AI Visa Assistant & Chatbot (`/api/chat`)
 
 VisaFlow includes an intelligent AI assistant grounded directly in the live database via Retrieval-Augmented Generation (RAG):
@@ -68,5 +75,5 @@ VisaFlow includes an intelligent AI assistant grounded directly in the live data
 - **Backend**: Spring Boot 3.4 / Java 17, Spring Security (JWT), Spring Data JPA, Hibernate, PostgreSQL, Bean Validation
 - **AI & RAG Engine**: Pluggable AI Client SPI (OpenAI, Google Gemini, Built-in RAG Assistant)
 - **API Documentation**: SpringDoc OpenAPI / Swagger UI (`/swagger-ui.html`)
-- **Frontend**: Next.js 15, React, TypeScript, Tailwind CSS
+- **Frontend**: Next.js 15, React, TypeScript, Tailwind CSS, shadcn/ui
 - **Testing**: JUnit 5, Mockito, Spring Boot Starter Test (MockMvc)

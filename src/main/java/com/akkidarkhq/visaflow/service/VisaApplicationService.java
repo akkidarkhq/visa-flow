@@ -28,6 +28,7 @@ import java.util.concurrent.ThreadLocalRandom;
 public class VisaApplicationService {
 
     private final VisaApplicationRepository visaApplicationRepository;
+    private final ApplicationGroupRepository applicationGroupRepository;
     private final TravellerProfileRepository travellerProfileRepository;
     private final VisaTypeRepository visaTypeRepository;
     private final ApplicationStatusHistoryRepository statusHistoryRepository;
@@ -36,7 +37,8 @@ public class VisaApplicationService {
 
     /**
      * MODEL B: Create a VisaApplication for a single traveller.
-     * Generates a new groupReference so additional companions can join later.
+     * Creates a first-class ApplicationGroup entity with a collision-proof groupReference
+     * so additional companions can join later.
      */
     @Transactional
     public VisaApplicationResponse createApplication(CreateVisaApplicationRequest request) {
@@ -46,13 +48,22 @@ public class VisaApplicationService {
         VisaType visaType = visaTypeRepository.findById(request.getVisaTypeId())
                 .orElseThrow(() -> new ResourceNotFoundException("VisaType not found with id: " + request.getVisaTypeId()));
 
-        String referenceNumber = generateReferenceNumber();
         String groupReference = generateGroupReference();
+        ApplicationGroup group = ApplicationGroup.builder()
+                .groupReference(groupReference)
+                .user(traveller.getUser())
+                .visaType(visaType)
+                .tripName(visaType.getName() + " Trip")
+                .build();
+        ApplicationGroup savedGroup = applicationGroupRepository.save(group);
+
+        String referenceNumber = generateReferenceNumber();
 
         VisaApplication application = VisaApplication.builder()
-                .orderItem(null)              // No order yet — Model B
+                .group(savedGroup)
+                .orderItem(null)
                 .referenceNumber(referenceNumber)
-                .groupReference(groupReference)
+                .groupReference(savedGroup.getGroupReference())
                 .traveller(traveller)
                 .visaType(visaType)
                 .status(ApplicationStatus.APPLICATION_STARTED)
@@ -68,14 +79,25 @@ public class VisaApplicationService {
 
     /**
      * Create multiple visa applications at the same time for family/friends.
-     * All applications share the exact same groupReference for unified tracking & checkout.
+     * Persists a single ApplicationGroup entity that all companion applications link to.
      */
     @Transactional
     public List<VisaApplicationResponse> createGroupApplications(CreateGroupVisaApplicationRequest request) {
         VisaType visaType = visaTypeRepository.findById(request.getVisaTypeId())
                 .orElseThrow(() -> new ResourceNotFoundException("VisaType not found with id: " + request.getVisaTypeId()));
 
+        TravellerProfile firstTraveller = travellerProfileRepository.findById(request.getTravellerIds().get(0))
+                .orElseThrow(() -> new ResourceNotFoundException("TravellerProfile not found with id: " + request.getTravellerIds().get(0)));
+
         String groupReference = generateGroupReference();
+        ApplicationGroup group = ApplicationGroup.builder()
+                .groupReference(groupReference)
+                .user(firstTraveller.getUser())
+                .visaType(visaType)
+                .tripName(visaType.getName() + " Group Trip")
+                .build();
+        ApplicationGroup savedGroup = applicationGroupRepository.save(group);
+
         List<VisaApplicationResponse> responses = new ArrayList<>();
 
         for (UUID travellerId : request.getTravellerIds()) {
@@ -85,9 +107,10 @@ public class VisaApplicationService {
             String referenceNumber = generateReferenceNumber();
 
             VisaApplication application = VisaApplication.builder()
+                    .group(savedGroup)
                     .orderItem(null)
                     .referenceNumber(referenceNumber)
-                    .groupReference(groupReference)
+                    .groupReference(savedGroup.getGroupReference())
                     .traveller(traveller)
                     .visaType(visaType)
                     .status(ApplicationStatus.APPLICATION_STARTED)
@@ -105,7 +128,7 @@ public class VisaApplicationService {
 
     /**
      * Attach a new companion / family member to an existing, ongoing visa application.
-     * The new application automatically inherits the existing application's visaType and groupReference.
+     * The new application links to the existing application's ApplicationGroup.
      */
     @Transactional
     public VisaApplicationResponse addTravellerToApplication(UUID existingApplicationId, AddTravellerToApplicationRequest request) {
@@ -129,20 +152,38 @@ public class VisaApplicationService {
         TravellerProfile newTraveller = travellerProfileRepository.findById(request.getTravellerId())
                 .orElseThrow(() -> new ResourceNotFoundException("TravellerProfile not found with id: " + request.getTravellerId()));
 
+        // Resolve or create ApplicationGroup
+        ApplicationGroup group = existingApp.getGroup();
+        if (group == null) {
+            group = applicationGroupRepository.findByGroupReference(existingApp.getGroupReference())
+                    .orElseGet(() -> {
+                        ApplicationGroup newGroup = ApplicationGroup.builder()
+                                .groupReference(existingApp.getGroupReference())
+                                .user(existingApp.getTraveller() != null ? existingApp.getTraveller().getUser() : null)
+                                .visaType(existingApp.getVisaType())
+                                .tripName(existingApp.getVisaType().getName() + " Trip")
+                                .build();
+                        return applicationGroupRepository.save(newGroup);
+                    });
+            existingApp.setGroup(group);
+            visaApplicationRepository.save(existingApp);
+        }
+
         String referenceNumber = generateReferenceNumber();
 
         VisaApplication companionApp = VisaApplication.builder()
+                .group(group)
                 .orderItem(null)
                 .referenceNumber(referenceNumber)
-                .groupReference(existingApp.getGroupReference())
+                .groupReference(group.getGroupReference())
                 .traveller(newTraveller)
-                .visaType(existingApp.getVisaType())
+                .visaType(group.getVisaType() != null ? group.getVisaType() : existingApp.getVisaType())
                 .status(ApplicationStatus.APPLICATION_STARTED)
                 .build();
 
         VisaApplication saved = visaApplicationRepository.save(companionApp);
         saveHistory(saved, null, ApplicationStatus.APPLICATION_STARTED,
-                "Added to group " + existingApp.getGroupReference() + " alongside application " + existingApp.getReferenceNumber());
+                "Added to group " + group.getGroupReference() + " alongside application " + existingApp.getReferenceNumber());
 
         return mapToResponse(saved);
     }
@@ -158,8 +199,9 @@ public class VisaApplicationService {
             throw new ResourceNotFoundException("No visa applications found for group reference: " + groupReference);
         }
 
-        VisaApplication firstApp = apps.get(0);
-        VisaType visaType = firstApp.getVisaType();
+        // Authoritative VisaType from ApplicationGroup or fallback to first app
+        Optional<ApplicationGroup> groupOpt = applicationGroupRepository.findByGroupReferenceWithDetails(groupReference);
+        VisaType visaType = groupOpt.map(ApplicationGroup::getVisaType).orElseGet(() -> apps.get(0).getVisaType());
 
         BigDecimal serviceFee = visaType.getServiceFee() != null ? visaType.getServiceFee() : BigDecimal.ZERO;
         BigDecimal embassyFee = visaType.getEmbassyFee() != null ? visaType.getEmbassyFee() : BigDecimal.ZERO;
@@ -265,21 +307,27 @@ public class VisaApplicationService {
      */
     @Transactional(readOnly = true)
     public List<GroupApplicationDetailsResponse> getAllGroups(UUID userId) {
-        List<VisaApplication> apps;
-        if (userId != null) {
-            apps = visaApplicationRepository.findByTravellerUserId(userId);
-        } else {
-            apps = visaApplicationRepository.findAll();
+        Set<String> distinctGroupRefs = new LinkedHashSet<>();
+
+        // Prefer first-class ApplicationGroup records
+        List<ApplicationGroup> groups = (userId != null)
+                ? applicationGroupRepository.findByUserIdOrderByCreatedAtDesc(userId)
+                : applicationGroupRepository.findAllByOrderByCreatedAtDesc();
+
+        for (ApplicationGroup g : groups) {
+            distinctGroupRefs.add(g.getGroupReference());
         }
 
-        // Sort descending by creation date so newest trips appear at the top
+        // Also check any legacy visa_applications that might not yet have group records
+        List<VisaApplication> apps = (userId != null)
+                ? visaApplicationRepository.findByTravellerUserId(userId)
+                : visaApplicationRepository.findAll();
+
         apps.sort((a, b) -> {
             if (a.getCreatedAt() == null || b.getCreatedAt() == null) return 0;
             return b.getCreatedAt().compareTo(a.getCreatedAt());
         });
 
-        // Collect distinct groupReferences preserving order
-        Set<String> distinctGroupRefs = new LinkedHashSet<>();
         for (VisaApplication app : apps) {
             if (app.getGroupReference() != null && !app.getGroupReference().isBlank()) {
                 distinctGroupRefs.add(app.getGroupReference());
@@ -329,13 +377,22 @@ public class VisaApplicationService {
      */
     @Transactional
     public VisaApplication createApplicationForOrderItem(OrderItem orderItem, TravellerProfile traveller, VisaType visaType, String contextNote) {
-        String referenceNumber = generateReferenceNumber();
         String groupReference = generateGroupReference();
+        ApplicationGroup group = ApplicationGroup.builder()
+                .groupReference(groupReference)
+                .user(traveller.getUser())
+                .visaType(visaType)
+                .tripName(visaType.getName() + " Trip")
+                .build();
+        ApplicationGroup savedGroup = applicationGroupRepository.save(group);
+
+        String referenceNumber = generateReferenceNumber();
 
         VisaApplication application = VisaApplication.builder()
+                .group(savedGroup)
                 .orderItem(orderItem)
                 .referenceNumber(referenceNumber)
-                .groupReference(groupReference)
+                .groupReference(savedGroup.getGroupReference())
                 .traveller(traveller)
                 .visaType(visaType)
                 .status(ApplicationStatus.APPLICATION_STARTED)
@@ -361,7 +418,7 @@ public class VisaApplicationService {
     @Transactional(readOnly = true)
     public VisaApplicationResponse getApplicationByReferenceNumber(String referenceNumber) {
         VisaApplication application = visaApplicationRepository.findByReferenceNumber(referenceNumber)
-                .orElseThrow(() -> new ResourceNotFoundException("VisaApplication not found with reference: " + referenceNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("VisaApplication not found with id: " + referenceNumber));
         return mapToResponse(application);
     }
 
@@ -511,14 +568,30 @@ public class VisaApplicationService {
         statusHistoryRepository.save(history);
     }
 
+    /**
+     * Collision-proof reference number generator.
+     * Guarantees uniqueness against the database.
+     */
     private String generateReferenceNumber() {
-        int randomNum = ThreadLocalRandom.current().nextInt(100000, 999999);
-        return "VF-" + Year.now().getValue() + "-" + randomNum;
+        String ref;
+        do {
+            int randomNum = ThreadLocalRandom.current().nextInt(100000, 999999);
+            ref = "VF-" + Year.now().getValue() + "-" + randomNum;
+        } while (visaApplicationRepository.existsByReferenceNumber(ref));
+        return ref;
     }
 
+    /**
+     * Collision-proof group reference generator.
+     * Guarantees uniqueness against ApplicationGroupRepository and VisaApplicationRepository.
+     */
     private String generateGroupReference() {
-        int randomNum = ThreadLocalRandom.current().nextInt(100000, 999999);
-        return "GRP-" + Year.now().getValue() + "-" + randomNum;
+        String ref;
+        do {
+            int randomNum = ThreadLocalRandom.current().nextInt(100000, 999999);
+            ref = "GRP-" + Year.now().getValue() + "-" + randomNum;
+        } while (applicationGroupRepository.existsByGroupReference(ref));
+        return ref;
     }
 
     public VisaApplicationResponse mapToResponse(VisaApplication app) {

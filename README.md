@@ -48,9 +48,25 @@ Instant group tracking reference code and individual application reference gener
 
 ---
 
+## 🤖 AI Visa Assistant & Chatbot (`/api/chat`)
+
+VisaFlow includes an intelligent AI assistant grounded directly in the live database via Retrieval-Augmented Generation (RAG):
+
+- **Pluggable Architecture**: Seamlessly switch between **OpenAI** (`gpt-4o-mini`), **Google Gemini** (`gemini-1.5-flash`), or zero-configuration **Local RAG Fallback**.
+- **Live Grounded Data**: Ingests real-time country requirements, visa products, fees, processing timelines, and document checklists from `CountryRepository`, `VisaTypeRepository`, and `ChecklistRequirementRepository`.
+- **Application & Group Status Tracking**: Recognizes reference numbers (`GRP-...`, `VIS-...`) and returns current status and applicant summaries.
+- **Graceful Resilience**: If an external LLM key is absent or rate-limited, the system automatically falls back to the internal database assistant without downtime.
+
+### API Endpoints
+- `POST /api/chat` - Send user message, multi-turn history, or context hints (countryCode, visaTypeId, referenceNumber).
+- `GET /api/chat/providers` - Inspect configured and active AI providers.
+
+---
+
 ## 🛠 Tech Stack
 
 - **Backend**: Spring Boot 3.4 / Java 17, Spring Security (JWT), Spring Data JPA, Hibernate, PostgreSQL, Bean Validation
+- **AI & RAG Engine**: Pluggable AI Client SPI (OpenAI, Google Gemini, Built-in RAG Assistant)
 - **API Documentation**: SpringDoc OpenAPI / Swagger UI (`/swagger-ui.html`)
 - **Frontend**: Next.js 15, React, TypeScript, Tailwind CSS
 - **Testing**: JUnit 5, Mockito, Spring Boot Starter Test (MockMvc)

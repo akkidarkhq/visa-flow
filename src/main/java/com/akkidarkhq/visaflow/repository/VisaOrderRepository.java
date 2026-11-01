@@ -11,5 +11,6 @@ import java.util.UUID;
 @Repository
 public interface VisaOrderRepository extends JpaRepository<VisaOrder, UUID> {
     Optional<VisaOrder> findByOrderReference(String orderReference);
+    boolean existsByOrderReference(String orderReference);
     List<VisaOrder> findByUserId(UUID userId);
 }

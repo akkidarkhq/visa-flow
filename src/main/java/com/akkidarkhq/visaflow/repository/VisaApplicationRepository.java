@@ -12,6 +12,7 @@ import java.util.UUID;
 @Repository
 public interface VisaApplicationRepository extends JpaRepository<VisaApplication, UUID> {
     Optional<VisaApplication> findByReferenceNumber(String referenceNumber);
+    boolean existsByReferenceNumber(String referenceNumber);
     Optional<VisaApplication> findByOrderItemId(UUID orderItemId);
     List<VisaApplication> findByOrderItemIdIn(List<UUID> orderItemIds);
     List<VisaApplication> findByTravellerId(UUID travellerId);
@@ -20,6 +21,7 @@ public interface VisaApplicationRepository extends JpaRepository<VisaApplication
     List<VisaApplication> findByTravellerUserId(UUID userId);
     List<VisaApplication> findByStatusAndTravellerUserId(ApplicationStatus status, UUID userId);
     List<VisaApplication> findByGroupReference(String groupReference);
+    List<VisaApplication> findByGroupId(UUID groupId);
     Optional<VisaApplication> findByGroupReferenceAndTravellerId(String groupReference, UUID travellerId);
     boolean existsByGroupReferenceAndTravellerId(String groupReference, UUID travellerId);
 }

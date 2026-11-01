@@ -308,9 +308,17 @@ public class VisaOrderService {
         return getOrderById(orderId);
     }
 
+    /**
+     * Collision-proof order reference generator.
+     * Checks database existence before returning.
+     */
     private String generateOrderReference() {
-        int randomNum = ThreadLocalRandom.current().nextInt(100000, 999999);
-        return "ORD-" + Year.now().getValue() + "-" + randomNum;
+        String ref;
+        do {
+            int randomNum = ThreadLocalRandom.current().nextInt(100000, 999999);
+            ref = "ORD-" + Year.now().getValue() + "-" + randomNum;
+        } while (visaOrderRepository.existsByOrderReference(ref));
+        return ref;
     }
 
     private OrderItemResponse mapToItemResponse(OrderItem item, VisaApplication application) {

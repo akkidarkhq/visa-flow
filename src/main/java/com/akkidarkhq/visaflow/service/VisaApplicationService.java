@@ -13,7 +13,9 @@ import com.akkidarkhq.visaflow.model.enums.ApplicationStatus;
 import com.akkidarkhq.visaflow.model.enums.DocumentStatus;
 import com.akkidarkhq.visaflow.model.enums.OrderStatus;
 import com.akkidarkhq.visaflow.repository.*;
+import com.akkidarkhq.visaflow.security.services.UserDetailsImpl;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,8 +44,20 @@ public class VisaApplicationService {
      */
     @Transactional
     public VisaApplicationResponse createApplication(CreateVisaApplicationRequest request) {
+        return createApplication(request, null);
+    }
+
+    @Transactional
+    public VisaApplicationResponse createApplication(CreateVisaApplicationRequest request, UserDetailsImpl currentUser) {
         TravellerProfile traveller = travellerProfileRepository.findById(request.getTravellerId())
                 .orElseThrow(() -> new ResourceNotFoundException("TravellerProfile not found with id: " + request.getTravellerId()));
+
+        if (currentUser != null && !isAdmin(currentUser)) {
+            UUID travellerOwnerId = traveller.getUser() != null ? traveller.getUser().getId() : null;
+            if (travellerOwnerId != null && !travellerOwnerId.equals(currentUser.getId())) {
+                throw new AccessDeniedException("You are not authorized to create applications for another user's traveller profile.");
+            }
+        }
 
         VisaType visaType = visaTypeRepository.findById(request.getVisaTypeId())
                 .orElseThrow(() -> new ResourceNotFoundException("VisaType not found with id: " + request.getVisaTypeId()));
@@ -83,11 +97,27 @@ public class VisaApplicationService {
      */
     @Transactional
     public List<VisaApplicationResponse> createGroupApplications(CreateGroupVisaApplicationRequest request) {
+        return createGroupApplications(request, null);
+    }
+
+    @Transactional
+    public List<VisaApplicationResponse> createGroupApplications(CreateGroupVisaApplicationRequest request, UserDetailsImpl currentUser) {
         VisaType visaType = visaTypeRepository.findById(request.getVisaTypeId())
                 .orElseThrow(() -> new ResourceNotFoundException("VisaType not found with id: " + request.getVisaTypeId()));
 
         TravellerProfile firstTraveller = travellerProfileRepository.findById(request.getTravellerIds().get(0))
                 .orElseThrow(() -> new ResourceNotFoundException("TravellerProfile not found with id: " + request.getTravellerIds().get(0)));
+
+        if (currentUser != null && !isAdmin(currentUser)) {
+            for (UUID travellerId : request.getTravellerIds()) {
+                TravellerProfile tp = travellerProfileRepository.findById(travellerId)
+                        .orElseThrow(() -> new ResourceNotFoundException("TravellerProfile not found with id: " + travellerId));
+                UUID ownerId = tp.getUser() != null ? tp.getUser().getId() : null;
+                if (ownerId != null && !ownerId.equals(currentUser.getId())) {
+                    throw new AccessDeniedException("All travellers in the group must belong to your user account.");
+                }
+            }
+        }
 
         String groupReference = generateGroupReference();
         ApplicationGroup group = ApplicationGroup.builder()
@@ -132,8 +162,23 @@ public class VisaApplicationService {
      */
     @Transactional
     public VisaApplicationResponse addTravellerToApplication(UUID existingApplicationId, AddTravellerToApplicationRequest request) {
+        return addTravellerToApplication(existingApplicationId, request, null);
+    }
+
+    @Transactional
+    public VisaApplicationResponse addTravellerToApplication(UUID existingApplicationId, AddTravellerToApplicationRequest request, UserDetailsImpl currentUser) {
         VisaApplication existingApp = visaApplicationRepository.findById(existingApplicationId)
                 .orElseThrow(() -> new ResourceNotFoundException("VisaApplication not found with id: " + existingApplicationId));
+
+        if (currentUser != null && !isAdmin(currentUser)) {
+            UUID groupOwnerId = existingApp.getGroup() != null && existingApp.getGroup().getUser() != null
+                    ? existingApp.getGroup().getUser().getId()
+                    : (existingApp.getTraveller() != null && existingApp.getTraveller().getUser() != null
+                    ? existingApp.getTraveller().getUser().getId() : null);
+            if (groupOwnerId != null && !groupOwnerId.equals(currentUser.getId())) {
+                throw new AccessDeniedException("You are not authorized to add companions to this application group.");
+            }
+        }
 
         // Validation: Cannot add companion if the existing application is already in embassy processing, passport decision received, or completed
         if (existingApp.getStatus() == ApplicationStatus.EMBASSY_CONSULATE_PROCESSING
@@ -151,6 +196,13 @@ public class VisaApplicationService {
 
         TravellerProfile newTraveller = travellerProfileRepository.findById(request.getTravellerId())
                 .orElseThrow(() -> new ResourceNotFoundException("TravellerProfile not found with id: " + request.getTravellerId()));
+
+        if (currentUser != null && !isAdmin(currentUser)) {
+            UUID newTravellerOwnerId = newTraveller.getUser() != null ? newTraveller.getUser().getId() : null;
+            if (newTravellerOwnerId != null && !newTravellerOwnerId.equals(currentUser.getId())) {
+                throw new AccessDeniedException("The companion traveller profile must belong to your user account.");
+            }
+        }
 
         // Resolve or create ApplicationGroup
         ApplicationGroup group = existingApp.getGroup();
@@ -194,9 +246,25 @@ public class VisaApplicationService {
      */
     @Transactional(readOnly = true)
     public GroupApplicationDetailsResponse getGroupDetails(String groupReference) {
+        return getGroupDetails(groupReference, null);
+    }
+
+    @Transactional(readOnly = true)
+    public GroupApplicationDetailsResponse getGroupDetails(String groupReference, UserDetailsImpl currentUser) {
         List<VisaApplication> apps = visaApplicationRepository.findByGroupReference(groupReference);
         if (apps.isEmpty()) {
             throw new ResourceNotFoundException("No visa applications found for group reference: " + groupReference);
+        }
+
+        if (currentUser != null && !isAdmin(currentUser)) {
+            Optional<ApplicationGroup> groupOpt = applicationGroupRepository.findByGroupReference(groupReference);
+            UUID ownerId = groupOpt.map(g -> g.getUser() != null ? g.getUser().getId() : null)
+                    .orElseGet(() -> !apps.isEmpty() && apps.get(0).getTraveller() != null && apps.get(0).getTraveller().getUser() != null
+                            ? apps.get(0).getTraveller().getUser().getId()
+                            : null);
+            if (ownerId != null && !ownerId.equals(currentUser.getId())) {
+                throw new AccessDeniedException("You are not authorized to view this visa application group.");
+            }
         }
 
         // Authoritative VisaType from ApplicationGroup or fallback to first app
@@ -294,55 +362,46 @@ public class VisaApplicationService {
      */
     @Transactional(readOnly = true)
     public GroupApplicationDetailsResponse getGroupDetailsByApplicationId(UUID applicationId) {
+        return getGroupDetailsByApplicationId(applicationId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public GroupApplicationDetailsResponse getGroupDetailsByApplicationId(UUID applicationId, UserDetailsImpl currentUser) {
         VisaApplication app = visaApplicationRepository.findById(applicationId)
                 .orElseThrow(() -> new ResourceNotFoundException("VisaApplication not found with id: " + applicationId));
 
-        return getGroupDetails(app.getGroupReference());
+        return getGroupDetails(app.getGroupReference(), currentUser);
     }
 
     /**
-     * Retrieves all visa application groups (with complete details and all companions)
+     * Retrieves all REAL visa application groups (multi-person trips with 2+ travellers)
      * optionally filtered by user ID (or all groups in system if userId is null).
-     * Groups are sorted with the most recently created trips first.
+     * Solo travellers are excluded from this method.
      */
     @Transactional(readOnly = true)
     public List<GroupApplicationDetailsResponse> getAllGroups(UUID userId) {
-        Set<String> distinctGroupRefs = new LinkedHashSet<>();
-
-        // Prefer first-class ApplicationGroup records
-        List<ApplicationGroup> groups = (userId != null)
-                ? applicationGroupRepository.findByUserIdOrderByCreatedAtDesc(userId)
-                : applicationGroupRepository.findAllByOrderByCreatedAtDesc();
-
-        for (ApplicationGroup g : groups) {
-            distinctGroupRefs.add(g.getGroupReference());
-        }
-
-        // Also check any legacy visa_applications that might not yet have group records
-        List<VisaApplication> apps = (userId != null)
-                ? visaApplicationRepository.findByTravellerUserId(userId)
-                : visaApplicationRepository.findAll();
-
-        apps.sort((a, b) -> {
-            if (a.getCreatedAt() == null || b.getCreatedAt() == null) return 0;
-            return b.getCreatedAt().compareTo(a.getCreatedAt());
-        });
-
-        for (VisaApplication app : apps) {
-            if (app.getGroupReference() != null && !app.getGroupReference().isBlank()) {
-                distinctGroupRefs.add(app.getGroupReference());
-            }
-        }
+        List<ApplicationGroup> multiGroups = applicationGroupRepository.findMultiPersonGroups(userId);
 
         List<GroupApplicationDetailsResponse> result = new ArrayList<>();
-        for (String groupRef : distinctGroupRefs) {
+        for (ApplicationGroup g : multiGroups) {
             try {
-                result.add(getGroupDetails(groupRef));
+                result.add(getGroupDetails(g.getGroupReference()));
             } catch (ResourceNotFoundException ignored) {
             }
         }
-
         return result;
+    }
+
+    /**
+     * Retrieves all standalone SOLO visa applications (applications where only 1 person is traveling).
+     * Excludes any applications that belong to multi-person family/friend groups.
+     */
+    @Transactional(readOnly = true)
+    public List<VisaApplicationResponse> getSoloApplications(UUID userId) {
+        return visaApplicationRepository.findSoloApplications(userId)
+                .stream()
+                .map(this::mapToResponse)
+                .toList();
     }
 
     /**
@@ -410,20 +469,64 @@ public class VisaApplicationService {
 
     @Transactional(readOnly = true)
     public VisaApplicationResponse getApplicationById(UUID id) {
+        return getApplicationById(id, null);
+    }
+
+    @Transactional(readOnly = true)
+    public VisaApplicationResponse getApplicationById(UUID id, UserDetailsImpl currentUser) {
         VisaApplication application = visaApplicationRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("VisaApplication not found with id: " + id));
+
+        if (currentUser != null && !isAdmin(currentUser)) {
+            UUID ownerId = application.getTraveller() != null && application.getTraveller().getUser() != null
+                    ? application.getTraveller().getUser().getId()
+                    : null;
+            if (ownerId != null && !ownerId.equals(currentUser.getId())) {
+                throw new AccessDeniedException("You are not authorized to view this visa application.");
+            }
+        }
+
         return mapToResponse(application);
     }
 
     @Transactional(readOnly = true)
     public VisaApplicationResponse getApplicationByReferenceNumber(String referenceNumber) {
+        return getApplicationByReferenceNumber(referenceNumber, null);
+    }
+
+    @Transactional(readOnly = true)
+    public VisaApplicationResponse getApplicationByReferenceNumber(String referenceNumber, UserDetailsImpl currentUser) {
         VisaApplication application = visaApplicationRepository.findByReferenceNumber(referenceNumber)
                 .orElseThrow(() -> new ResourceNotFoundException("VisaApplication not found with id: " + referenceNumber));
+
+        if (currentUser != null && !isAdmin(currentUser)) {
+            UUID ownerId = application.getTraveller() != null && application.getTraveller().getUser() != null
+                    ? application.getTraveller().getUser().getId()
+                    : null;
+            if (ownerId != null && !ownerId.equals(currentUser.getId())) {
+                throw new AccessDeniedException("You are not authorized to view this visa application.");
+            }
+        }
+
         return mapToResponse(application);
     }
 
     @Transactional(readOnly = true)
     public List<VisaApplicationResponse> getApplicationsByTravellerId(UUID travellerId) {
+        return getApplicationsByTravellerId(travellerId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<VisaApplicationResponse> getApplicationsByTravellerId(UUID travellerId, UserDetailsImpl currentUser) {
+        if (currentUser != null && !isAdmin(currentUser)) {
+            TravellerProfile tp = travellerProfileRepository.findById(travellerId)
+                    .orElseThrow(() -> new ResourceNotFoundException("TravellerProfile not found with id: " + travellerId));
+            UUID ownerId = tp.getUser() != null ? tp.getUser().getId() : null;
+            if (ownerId != null && !ownerId.equals(currentUser.getId())) {
+                throw new AccessDeniedException("You are not authorized to view applications for this traveller.");
+            }
+        }
+
         return visaApplicationRepository.findByTravellerId(travellerId)
                 .stream()
                 .map(this::mapToResponse)
@@ -566,6 +669,12 @@ public class VisaApplicationService {
                 .notes(notes)
                 .build();
         statusHistoryRepository.save(history);
+    }
+
+    private boolean isAdmin(UserDetailsImpl currentUser) {
+        if (currentUser == null) return false;
+        return currentUser.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
     }
 
     /**

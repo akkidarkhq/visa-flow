@@ -13,7 +13,7 @@ import org.springframework.web.client.RestClient;
 import java.util.*;
 
 /**
- * Google Gemini API client implementation (supports gemini-1.5-flash, gemini-2.0, etc.).
+ * Google Gemini API client implementation (supports gemini-3.5-flash, gemini-2.5, etc.).
  */
 @Slf4j
 @Component
@@ -29,11 +29,11 @@ public class GeminiClient implements AiClient {
     public GeminiClient(
             @Autowired(required = false) ObjectMapper objectMapper,
             @Value("${visaflow.ai.gemini.api-key:}") String apiKey,
-            @Value("${visaflow.ai.gemini.model:gemini-1.5-flash}") String model,
+            @Value("${visaflow.ai.gemini.model:gemini-3.5-flash}") String model,
             @Value("${visaflow.ai.gemini.base-url:https://generativelanguage.googleapis.com}") String baseUrl) {
         this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
         this.apiKey = apiKey != null ? apiKey.trim() : "";
-        this.model = model != null && !model.isBlank() ? model : "gemini-1.5-flash";
+        this.model = model != null && !model.isBlank() ? model : "gemini-3.5-flash";
         this.baseUrl = baseUrl != null && !baseUrl.isBlank() ? baseUrl : "https://generativelanguage.googleapis.com";
         this.restClient = RestClient.builder().baseUrl(this.baseUrl).build();
     }

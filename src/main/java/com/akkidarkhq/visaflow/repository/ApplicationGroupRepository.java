@@ -26,4 +26,16 @@ public interface ApplicationGroupRepository extends JpaRepository<ApplicationGro
            "LEFT JOIN FETCH vt.country " +
            "WHERE g.groupReference = :groupReference")
     Optional<ApplicationGroup> findByGroupReferenceWithDetails(@Param("groupReference") String groupReference);
+
+    /**
+     * Database-optimized query to fetch ONLY multi-person groups (applications count > 1).
+     * Excludes solo travelers completely.
+     */
+    @Query("SELECT g FROM ApplicationGroup g " +
+           "JOIN g.applications a " +
+           "WHERE (:userId IS NULL OR g.user.id = :userId) " +
+           "GROUP BY g.id, g.groupReference, g.user, g.visaType, g.tripName, g.createdAt, g.updatedAt " +
+           "HAVING COUNT(a.id) > 1 " +
+           "ORDER BY g.createdAt DESC")
+    List<ApplicationGroup> findMultiPersonGroups(@Param("userId") UUID userId);
 }

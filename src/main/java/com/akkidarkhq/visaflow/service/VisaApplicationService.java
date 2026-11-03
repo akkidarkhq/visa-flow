@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.Year;
 import java.util.*;
@@ -39,8 +40,8 @@ public class VisaApplicationService {
 
     /**
      * MODEL B: Create a VisaApplication for a single traveller.
-     * Creates a first-class ApplicationGroup entity with a collision-proof groupReference
-     * so additional companions can join later.
+     * Enforces travel date constraints, duplicate-application prevention for the same visa,
+     * and itinerary collision detection.
      */
     @Transactional
     public VisaApplicationResponse createApplication(CreateVisaApplicationRequest request) {
@@ -62,12 +63,17 @@ public class VisaApplicationService {
         VisaType visaType = visaTypeRepository.findById(request.getVisaTypeId())
                 .orElseThrow(() -> new ResourceNotFoundException("VisaType not found with id: " + request.getVisaTypeId()));
 
+        // Validate travel dates, processing window, duplicate application for same visa, and travel date overlap
+        validateTravelDatesAndNoConflicts(traveller, visaType, request.getTravelStartDate(), request.getTravelEndDate());
+
         String groupReference = generateGroupReference();
         ApplicationGroup group = ApplicationGroup.builder()
                 .groupReference(groupReference)
                 .user(traveller.getUser())
                 .visaType(visaType)
                 .tripName(visaType.getName() + " Trip")
+                .travelStartDate(request.getTravelStartDate())
+                .travelEndDate(request.getTravelEndDate())
                 .build();
         ApplicationGroup savedGroup = applicationGroupRepository.save(group);
 
@@ -78,6 +84,8 @@ public class VisaApplicationService {
                 .orderItem(null)
                 .referenceNumber(referenceNumber)
                 .groupReference(savedGroup.getGroupReference())
+                .travelStartDate(request.getTravelStartDate())
+                .travelEndDate(request.getTravelEndDate())
                 .traveller(traveller)
                 .visaType(visaType)
                 .status(ApplicationStatus.APPLICATION_STARTED)
@@ -93,7 +101,7 @@ public class VisaApplicationService {
 
     /**
      * Create multiple visa applications at the same time for family/friends.
-     * Persists a single ApplicationGroup entity that all companion applications link to.
+     * Enforces travel dates and conflict checks across all companions joining the trip.
      */
     @Transactional
     public List<VisaApplicationResponse> createGroupApplications(CreateGroupVisaApplicationRequest request) {
@@ -108,6 +116,7 @@ public class VisaApplicationService {
         TravellerProfile firstTraveller = travellerProfileRepository.findById(request.getTravellerIds().get(0))
                 .orElseThrow(() -> new ResourceNotFoundException("TravellerProfile not found with id: " + request.getTravellerIds().get(0)));
 
+        // Ownership verification
         if (currentUser != null && !isAdmin(currentUser)) {
             for (UUID travellerId : request.getTravellerIds()) {
                 TravellerProfile tp = travellerProfileRepository.findById(travellerId)
@@ -119,12 +128,21 @@ public class VisaApplicationService {
             }
         }
 
+        // Validate travel dates and conflict checks for all travellers in group
+        for (UUID travellerId : request.getTravellerIds()) {
+            TravellerProfile tp = travellerProfileRepository.findById(travellerId)
+                    .orElseThrow(() -> new ResourceNotFoundException("TravellerProfile not found with id: " + travellerId));
+            validateTravelDatesAndNoConflicts(tp, visaType, request.getTravelStartDate(), request.getTravelEndDate());
+        }
+
         String groupReference = generateGroupReference();
         ApplicationGroup group = ApplicationGroup.builder()
                 .groupReference(groupReference)
                 .user(firstTraveller.getUser())
                 .visaType(visaType)
                 .tripName(visaType.getName() + " Group Trip")
+                .travelStartDate(request.getTravelStartDate())
+                .travelEndDate(request.getTravelEndDate())
                 .build();
         ApplicationGroup savedGroup = applicationGroupRepository.save(group);
 
@@ -141,6 +159,8 @@ public class VisaApplicationService {
                     .orderItem(null)
                     .referenceNumber(referenceNumber)
                     .groupReference(savedGroup.getGroupReference())
+                    .travelStartDate(request.getTravelStartDate())
+                    .travelEndDate(request.getTravelEndDate())
                     .traveller(traveller)
                     .visaType(visaType)
                     .status(ApplicationStatus.APPLICATION_STARTED)
@@ -158,7 +178,8 @@ public class VisaApplicationService {
 
     /**
      * Attach a new companion / family member to an existing, ongoing visa application.
-     * The new application links to the existing application's ApplicationGroup.
+     * The companion inherits the existing application's trip dates and destination,
+     * while performing active application and itinerary collision checks.
      */
     @Transactional
     public VisaApplicationResponse addTravellerToApplication(UUID existingApplicationId, AddTravellerToApplicationRequest request) {
@@ -214,11 +235,22 @@ public class VisaApplicationService {
                                 .user(existingApp.getTraveller() != null ? existingApp.getTraveller().getUser() : null)
                                 .visaType(existingApp.getVisaType())
                                 .tripName(existingApp.getVisaType().getName() + " Trip")
+                                .travelStartDate(existingApp.getTravelStartDate())
+                                .travelEndDate(existingApp.getTravelEndDate())
                                 .build();
                         return applicationGroupRepository.save(newGroup);
                     });
             existingApp.setGroup(group);
             visaApplicationRepository.save(existingApp);
+        }
+
+        LocalDate travelStart = group.getTravelStartDate() != null ? group.getTravelStartDate() : existingApp.getTravelStartDate();
+        LocalDate travelEnd = group.getTravelEndDate() != null ? group.getTravelEndDate() : existingApp.getTravelEndDate();
+        VisaType targetVisaType = group.getVisaType() != null ? group.getVisaType() : existingApp.getVisaType();
+
+        // Validate that this companion doesn't already have an active application for this visa or conflicting dates
+        if (travelStart != null && travelEnd != null) {
+            validateTravelDatesAndNoConflicts(newTraveller, targetVisaType, travelStart, travelEnd);
         }
 
         String referenceNumber = generateReferenceNumber();
@@ -228,8 +260,10 @@ public class VisaApplicationService {
                 .orderItem(null)
                 .referenceNumber(referenceNumber)
                 .groupReference(group.getGroupReference())
+                .travelStartDate(travelStart)
+                .travelEndDate(travelEnd)
                 .traveller(newTraveller)
-                .visaType(group.getVisaType() != null ? group.getVisaType() : existingApp.getVisaType())
+                .visaType(targetVisaType)
                 .status(ApplicationStatus.APPLICATION_STARTED)
                 .build();
 
@@ -241,7 +275,76 @@ public class VisaApplicationService {
     }
 
     /**
-     * Retrieves complete group details (all companions, document summaries, costs, and readiness)
+     * Comprehensive validation for travel dates, processing window, duplicate application for the same visa,
+     * and itinerary date collision checks.
+     */
+    public void validateTravelDatesAndNoConflicts(
+            TravellerProfile traveller,
+            VisaType visaType,
+            LocalDate travelStartDate,
+            LocalDate travelEndDate) {
+
+        if (travelStartDate == null) {
+            throw new IllegalArgumentException("Travel start date is required.");
+        }
+        if (travelEndDate == null) {
+            throw new IllegalArgumentException("Travel end date is required.");
+        }
+
+        LocalDate today = LocalDate.now();
+        if (travelStartDate.isBefore(today)) {
+            throw new IllegalArgumentException("Travel start date cannot be in the past (" + travelStartDate + ").");
+        }
+        if (travelEndDate.isBefore(travelStartDate)) {
+            throw new IllegalArgumentException("Travel end date (" + travelEndDate + ") cannot be earlier than travel start date (" + travelStartDate + ").");
+        }
+
+        // Processing time window check
+        int processingDays = visaType.getProcessingTimeDays() != null ? visaType.getProcessingTimeDays() : 0;
+        LocalDate earliestValidDate = today.plusDays(processingDays);
+        if (travelStartDate.isBefore(earliestValidDate)) {
+            throw new IllegalArgumentException(String.format(
+                    "Travel start date (%s) is too soon. Visa type '%s' requires at least %d days for embassy processing (earliest departure: %s).",
+                    travelStartDate, visaType.getName(), processingDays, earliestValidDate
+            ));
+        }
+
+        // Check active applications for this traveller (all statuses except terminal COMPLETED)
+        List<VisaApplication> activeApplications = visaApplicationRepository.findByTravellerIdAndStatusNotIn(
+                traveller.getId(),
+                List.of(ApplicationStatus.COMPLETED)
+        );
+
+        for (VisaApplication activeApp : activeApplications) {
+            // Scenario 1: Same Visa Type Active Application (Strict Duplicate Block)
+            if (activeApp.getVisaType() != null && activeApp.getVisaType().getId().equals(visaType.getId())) {
+                throw new IllegalStateException(String.format(
+                        "Traveller %s %s already has an active application (%s) for '%s' in status %s. Duplicate active applications for the same visa destination are not permitted.",
+                        traveller.getFirstName(), traveller.getLastName(),
+                        activeApp.getReferenceNumber(), visaType.getName(), activeApp.getStatus()
+                ));
+            }
+
+            // Scenario 2: Different Visa Destination with Overlapping Travel Dates (Physical Impossibility & Itinerary Clash)
+            LocalDate activeStart = activeApp.getTravelStartDate();
+            LocalDate activeEnd = activeApp.getTravelEndDate();
+            if (activeStart != null && activeEnd != null) {
+                boolean overlaps = !travelStartDate.isAfter(activeEnd) && !travelEndDate.isBefore(activeStart);
+                if (overlaps) {
+                    String activeVisaName = activeApp.getVisaType() != null ? activeApp.getVisaType().getName() : "another visa destination";
+                    throw new IllegalStateException(String.format(
+                            "Travel dates (%s to %s) conflict with traveller %s %s's existing active application (%s for '%s', travel dates: %s to %s). Overlapping travel itineraries are not permitted.",
+                            travelStartDate, travelEndDate,
+                            traveller.getFirstName(), traveller.getLastName(),
+                            activeApp.getReferenceNumber(), activeVisaName, activeStart, activeEnd
+                    ));
+                }
+            }
+        }
+    }
+
+    /**
+     * Retrieves complete group details (all companions, document summaries, costs, travel dates, and readiness)
      * by groupReference (e.g. GRP-2026-123456).
      */
     @Transactional(readOnly = true)
@@ -267,9 +370,13 @@ public class VisaApplicationService {
             }
         }
 
-        // Authoritative VisaType from ApplicationGroup or fallback to first app
+        // Authoritative VisaType and Travel Dates from ApplicationGroup or fallback to first app
         Optional<ApplicationGroup> groupOpt = applicationGroupRepository.findByGroupReferenceWithDetails(groupReference);
         VisaType visaType = groupOpt.map(ApplicationGroup::getVisaType).orElseGet(() -> apps.get(0).getVisaType());
+        LocalDate groupTravelStart = groupOpt.map(ApplicationGroup::getTravelStartDate)
+                .orElseGet(() -> !apps.isEmpty() ? apps.get(0).getTravelStartDate() : null);
+        LocalDate groupTravelEnd = groupOpt.map(ApplicationGroup::getTravelEndDate)
+                .orElseGet(() -> !apps.isEmpty() ? apps.get(0).getTravelEndDate() : null);
 
         BigDecimal serviceFee = visaType.getServiceFee() != null ? visaType.getServiceFee() : BigDecimal.ZERO;
         BigDecimal embassyFee = visaType.getEmbassyFee() != null ? visaType.getEmbassyFee() : BigDecimal.ZERO;
@@ -320,6 +427,8 @@ public class VisaApplicationService {
                     .applicationId(app.getId())
                     .referenceNumber(app.getReferenceNumber())
                     .status(app.getStatus())
+                    .travelStartDate(app.getTravelStartDate())
+                    .travelEndDate(app.getTravelEndDate())
                     .createdAt(app.getCreatedAt())
                     .travellerId(t != null ? t.getId() : null)
                     .firstName(t != null ? t.getFirstName() : null)
@@ -346,6 +455,8 @@ public class VisaApplicationService {
                 .visaTypeId(visaType.getId())
                 .visaTypeName(visaType.getName())
                 .countryName(countryName)
+                .travelStartDate(groupTravelStart)
+                .travelEndDate(groupTravelEnd)
                 .serviceFee(serviceFee)
                 .embassyFee(embassyFee)
                 .feePerPerson(feePerPerson)
@@ -437,11 +548,16 @@ public class VisaApplicationService {
     @Transactional
     public VisaApplication createApplicationForOrderItem(OrderItem orderItem, TravellerProfile traveller, VisaType visaType, String contextNote) {
         String groupReference = generateGroupReference();
+        LocalDate defaultStart = LocalDate.now().plusDays(visaType.getProcessingTimeDays() != null ? visaType.getProcessingTimeDays() + 7 : 14);
+        LocalDate defaultEnd = defaultStart.plusDays(10);
+
         ApplicationGroup group = ApplicationGroup.builder()
                 .groupReference(groupReference)
                 .user(traveller.getUser())
                 .visaType(visaType)
                 .tripName(visaType.getName() + " Trip")
+                .travelStartDate(defaultStart)
+                .travelEndDate(defaultEnd)
                 .build();
         ApplicationGroup savedGroup = applicationGroupRepository.save(group);
 
@@ -452,6 +568,8 @@ public class VisaApplicationService {
                 .orderItem(orderItem)
                 .referenceNumber(referenceNumber)
                 .groupReference(savedGroup.getGroupReference())
+                .travelStartDate(defaultStart)
+                .travelEndDate(defaultEnd)
                 .traveller(traveller)
                 .visaType(visaType)
                 .status(ApplicationStatus.APPLICATION_STARTED)
@@ -655,6 +773,8 @@ public class VisaApplicationService {
                 .visaTypeId(visaTypeId)
                 .visaTypeName(visaName)
                 .countryName(countryName)
+                .travelStartDate(app.getTravelStartDate())
+                .travelEndDate(app.getTravelEndDate())
                 .approvedDocuments(docSummaries)
                 .submittedAt(OffsetDateTime.now())
                 .submissionMessage(message)
@@ -723,6 +843,8 @@ public class VisaApplicationService {
                 .orderItemId(app.getOrderItem() != null ? app.getOrderItem().getId() : null)
                 .referenceNumber(app.getReferenceNumber())
                 .groupReference(app.getGroupReference())
+                .travelStartDate(app.getTravelStartDate())
+                .travelEndDate(app.getTravelEndDate())
                 .travellerId(app.getTraveller() != null ? app.getTraveller().getId() : null)
                 .travellerFullName(travellerName)
                 .passportNumber(passport)

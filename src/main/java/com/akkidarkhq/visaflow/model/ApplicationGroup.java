@@ -6,6 +6,7 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -45,6 +46,12 @@ public class ApplicationGroup {
 
     @Column(name = "trip_name", length = 150)
     private String tripName;
+
+    @Column(name = "travel_start_date")
+    private LocalDate travelStartDate;
+
+    @Column(name = "travel_end_date")
+    private LocalDate travelEndDate;
 
     @Builder.Default
     @OneToMany(mappedBy = "group", cascade = CascadeType.ALL, fetch = FetchType.LAZY)

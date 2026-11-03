@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -18,6 +19,7 @@ public interface VisaApplicationRepository extends JpaRepository<VisaApplication
     Optional<VisaApplication> findByOrderItemId(UUID orderItemId);
     List<VisaApplication> findByOrderItemIdIn(List<UUID> orderItemIds);
     List<VisaApplication> findByTravellerId(UUID travellerId);
+    List<VisaApplication> findByTravellerIdAndStatusNotIn(UUID travellerId, Collection<ApplicationStatus> statuses);
     boolean existsByOrderItemId(UUID orderItemId);
     List<VisaApplication> findByStatus(ApplicationStatus status);
     List<VisaApplication> findByTravellerUserId(UUID userId);

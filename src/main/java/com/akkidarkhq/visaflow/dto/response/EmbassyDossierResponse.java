@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -31,6 +32,8 @@ public class EmbassyDossierResponse {
     private Long visaTypeId;
     private String visaTypeName;
     private String countryName;
+    private LocalDate travelStartDate;
+    private LocalDate travelEndDate;
 
     // Verified documents packaged for embassy submission
     private List<ApprovedDocumentSummary> approvedDocuments;

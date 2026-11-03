@@ -22,6 +22,8 @@ public class GroupApplicationDetailsResponse {
     private Long visaTypeId;
     private String visaTypeName;
     private String countryName;
+    private LocalDate travelStartDate;
+    private LocalDate travelEndDate;
     private BigDecimal serviceFee;
     private BigDecimal embassyFee;
     private BigDecimal feePerPerson;
@@ -39,6 +41,8 @@ public class GroupApplicationDetailsResponse {
         private UUID applicationId;
         private String referenceNumber;
         private ApplicationStatus status;
+        private LocalDate travelStartDate;
+        private LocalDate travelEndDate;
         private OffsetDateTime createdAt;
 
         // Traveller details

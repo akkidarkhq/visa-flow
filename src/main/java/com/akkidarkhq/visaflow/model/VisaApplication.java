@@ -6,6 +6,7 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -13,7 +14,8 @@ import java.util.UUID;
 @Table(name = "visa_applications", indexes = {
     @Index(name = "idx_visa_applications_group_ref", columnList = "group_reference"),
     @Index(name = "idx_visa_applications_reference_num", columnList = "reference_number"),
-    @Index(name = "idx_visa_applications_group_id", columnList = "group_id")
+    @Index(name = "idx_visa_applications_group_id", columnList = "group_id"),
+    @Index(name = "idx_visa_applications_travel_dates", columnList = "travel_start_date, travel_end_date")
 })
 @Getter
 @Setter
@@ -51,6 +53,12 @@ public class VisaApplication {
     @Column(name = "group_reference", length = 35)
     private String groupReference;
 
+    @Column(name = "travel_start_date")
+    private LocalDate travelStartDate;
+
+    @Column(name = "travel_end_date")
+    private LocalDate travelEndDate;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "traveller_id", nullable = false)
     private TravellerProfile traveller;
@@ -76,5 +84,19 @@ public class VisaApplication {
             return group.getGroupReference();
         }
         return this.groupReference;
+    }
+
+    public LocalDate getTravelStartDate() {
+        if (this.travelStartDate != null) {
+            return this.travelStartDate;
+        }
+        return group != null ? group.getTravelStartDate() : null;
+    }
+
+    public LocalDate getTravelEndDate() {
+        if (this.travelEndDate != null) {
+            return this.travelEndDate;
+        }
+        return group != null ? group.getTravelEndDate() : null;
     }
 }

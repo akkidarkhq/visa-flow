@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -24,6 +25,8 @@ public class VisaApplicationResponse {
     private Long visaTypeId;
     private String visaTypeName;
     private String countryName;
+    private LocalDate travelStartDate;
+    private LocalDate travelEndDate;
     private ApplicationStatus status;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
